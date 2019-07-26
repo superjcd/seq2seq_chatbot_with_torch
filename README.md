@@ -1,0 +1,2 @@
+# seq2seq_chatbot_with_torch
+使用seq2seq加attention的方法实现一个聊天机器人
