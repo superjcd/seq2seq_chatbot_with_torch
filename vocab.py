@@ -35,14 +35,10 @@ sort_key=lambda x: len(x.prev), sort_within_batch=True, shuffle=True)
 
 
 if __name__ =='__main__':
-    print(PREV.vocab.itos[10], NEXT.vocab.itos[10], sep='-')
     for i, data in enumerate(val_iter):
         if i <3:
-            print(data.prev.shape)
-            print(data.prev)
-        else:
-            break
-        print('*' * 10)
+            print(data.next.shape)
+
 
 
 
