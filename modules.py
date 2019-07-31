@@ -1,28 +1,38 @@
 '''
   定义包括模型、 损失函数以及训练函数
 '''
-
+# TODO: 解决（decoder）RuntimeError: input.size(-1) must be equal to input_size. Expected 1000, got 1500
+import os
+import  logging
 import torch
 from torch import nn
 import torch.nn.functional as F
 from vocab import PREV, NEXT, train_iter
 from configs import BasicConfigs
+from utils import chi_tokenizer
+
+
+__all__ = ["Encoder", "Decoder", "train", "translate"]
+
+
+logger = logging.getLogger()
 
 bc = BasicConfigs()
 BOS = '<bos>'
 PAD = '<pad>'
-
-
-__all__ = ["Encoder", "Decoder", "train"]
+EOS = '<eos>'
 
 
 ####  模型 : 包括编码器、 解码器、 注意力机制
 
 class Encoder(nn.Module):
-    def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
+    def __init__(self, embedding, embed_size, num_hiddens, num_layers,
                  drop_prob=0, **kwargs):
         super(Encoder, self).__init__(**kwargs)
-        self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.num_hiddens = num_hiddens
+        self.num_layers = num_layers
+        self.embedding = embedding
+        #self.embedding = nn.Embedding(vocab_size, embed_size)
         self.rnn = nn.GRU(embed_size, num_hiddens, num_layers, dropout=drop_prob)
 
     def forward(self, inputs, state):
@@ -61,10 +71,12 @@ class Decoder(nn.Module):
     '''
      解码器
     '''
-    def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
+    def __init__(self, embedding, vocab_size, embed_size, num_hiddens, num_layers,
                  attention_size, drop_prob=0):
         super(Decoder, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.num_hiddens = num_hiddens
+        self.num_layers = num_layers
+        self.embedding = embedding
         self.attention = attention_model(2*num_hiddens, attention_size)
         # GRU的输入包含attention输出的c和实际输入, 所以尺寸是 2*embed_size
         self.rnn = nn.GRU(2*embed_size, num_hiddens, num_layers, dropout=drop_prob)
@@ -120,13 +132,11 @@ def batch_loss(encoder, decoder, X, Y, loss):
 
 #### 训练函数 ####
 
-def train(encoder, decoder, lr, num_epochs):
-    enc_optimizer = torch.optim.Adam(encoder.parameters(), lr=lr)
-    dec_optimizer = torch.optim.Adam(decoder.parameters(), lr=lr)
-
+def train(encoder, decoder, enc_optimizer, dec_optimizer, num_epochs, save_every):
     loss = nn.CrossEntropyLoss(reduction='none')
     data_iter = train_iter
     for epoch in range(num_epochs):
+        logger.info('Epoch num is {}'.format(epoch+1))
         l_sum = 0.0
         for batch in data_iter:
             X = batch.prev.to(bc.device)
@@ -140,5 +150,46 @@ def train(encoder, decoder, lr, num_epochs):
             l_sum += l.item()
         if (epoch + 1) % 10 == 0:
             print("epoch %d, loss %.3f" % (epoch + 1, l_sum / len(data_iter)))
+        # 保存模型
+        if (epoch +1) % save_every == 0:
+            logger.info('save the modle')
+            directory = os.path.join('models', '{}-{}'.format(
+                                                            encoder.num_layers,
+                                                            encoder.num_hiddens))
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+            torch.save({
+                'epochs':epoch,
+                'en':encoder.state_dict(),
+                'de':decoder.state_dict(),
+                'en_opt':enc_optimizer.state_dict(),
+                'de_opt':dec_optimizer.state_dict(),
+                'embedding':encoder.embedding.state_dict()
+            }, os.path.join(directory, '{}_{}.tar'.format(epoch, 'checkpoint')))
+
+
+####   贪婪搜索  ###
+def translate(encoder, decoder, input_seq, max_seq_len):
+    in_tokens = chi_tokenizer(input_seq)
+    in_tokens += [EOS] + [PAD] * (max_seq_len - len(in_tokens) - 1)
+    enc_input = torch.tensor([[PREV.vocab.stoi[tk] for tk in in_tokens]]) # batch=1
+    enc_state = encoder.begin_state()
+    enc_output, enc_state = encoder(enc_input, enc_state)
+    dec_input = torch.tensor([NEXT.vocab.stoi[BOS]])
+    dec_state = decoder.begin_state(enc_state)
+    output_tokens = []
+    for _ in range(max_seq_len):
+        dec_output, dec_state = decoder(dec_input, dec_state, enc_output)
+        pred = dec_output.argmax(dim=1)
+        pred_token = NEXT.vocab.itos[int(pred.item())]
+        if pred_token == EOS:  # 当任一时间步搜索出EOS时，输出序列即完成
+            break
+        else:
+            output_tokens.append(pred_token)
+            dec_input = pred
+    return output_tokens
+
+
+
 
 

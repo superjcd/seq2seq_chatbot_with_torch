@@ -1,4 +1,6 @@
 import logging
+import torch
+import torch.nn as nn
 from logging import StreamHandler, FileHandler
 from argparse import ArgumentParser
 from modules import *
@@ -24,12 +26,10 @@ logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
 
-
-
-
-
 if __name__ == '__main__':
     parser = ArgumentParser()
+    parser.add_argument('--mode', default='train', choices=['train', 'evaluate'],
+                                      help='Choose mode to train or just use the model')
     parser.add_argument('--num_epochs', default=bc.num_epochs, help='Epochs for train')
     parser.add_argument('--embed_size', default=bc.embed_size, help='Emmbeding size')
     parser.add_argument('--num_hiddens', default=bc.num_hiddens, help='Hidden size')
@@ -37,12 +37,35 @@ if __name__ == '__main__':
     parser.add_argument('--drop_prob', default=bc.drop_prob, help='Drop rates')
     parser.add_argument('--attention_size', default=bc.attention_size, help='Attention_size')
     parser.add_argument('--lr', default=bc.lr, help='Learning rate')
+    parser.add_argument('--save_every', type=int, required=True, help='Save model after every [ ] epochs')
+    parser.add_argument('--load_model_dir', type=str, help='Load model from the directory befor trainning')
     args = parser.parse_args()
     print(args)
-    encoder = Encoder(len(PREV.vocab), args.embed_size, args.num_hiddens, args.num_layers,
+    embedding = nn.Embedding(len(PREV.vocab), args.embed_size)
+    encoder = Encoder(embedding, args.embed_size, args.num_hiddens, args.num_layers,
                       args.drop_prob)
-    decoder = Decoder(len(NEXT.vocab), args.embed_size, args.num_hiddens, args.num_layers,
+    decoder = Decoder(embedding, len(PREV.vocab), args.embed_size, args.num_hiddens, args.num_layers,
                       args.attention_size, args.drop_prob)
+    enc_optimizer = torch.optim.Adam(encoder.parameters(), lr=args.lr)
+    dec_optimizer = torch.optim.Adam(decoder.parameters(), lr=args.lr)
 
-    ## start to train the model
-    train(encoder, decoder, args.lr, args.num_epochs)
+    if args.load_model_dir:
+        checkpoint = torch.load(args.load_model_dir)
+        encoder_sd = checkpoint['en']
+        decoder_sd = checkpoint['de']
+        encoder_optimizer_sd = checkpoint['en_opt']
+        decoder_optimizer_sd = checkpoint['de_opt']
+        embedding_sd = checkpoint['embedding']
+        # 如果选择加载模型， 就直接将参数传入进去
+        encoder.load_state_dict(encoder_sd)
+        decoder.load_state_dict(decoder_sd)
+        enc_optimizer.load_state_dict(encoder_optimizer_sd)
+        dec_optimizer.load_state_dict(decoder_optimizer_sd)
+        encoder.embedding.load_state_dict(embedding_sd)
+        decoder.embedding.load_state_dict(embedding_sd)
+    if args.mode == 'train':
+        logger.info('Start to  train the model')
+        train(encoder, decoder, enc_optimizer, dec_optimizer, args.num_epochs, save_every=args.save_every)
+    else:
+        logger.info('Preparing model to use')
+        # translate
