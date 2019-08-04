@@ -4,7 +4,7 @@ import torch.nn as nn
 from logging import StreamHandler, FileHandler
 from argparse import ArgumentParser
 from modules import *
-from vocab import PREV, NEXT
+from vocab import prepare_vocab
 from configs import BasicConfigs
 
 bc = BasicConfigs()
@@ -40,7 +40,8 @@ if __name__ == '__main__':
     parser.add_argument('--save_every', type=int, required=True, help='Save model after every [ ] epochs')
     parser.add_argument('--load_model_dir', type=str, help='Load model from the directory befor trainning')
     args = parser.parse_args()
-    print(args)
+    logger.info(f'We are going  to use following arguments:\n {args.__dict__}')
+    PREV, NEXT, train_iter, val_iter= prepare_vocab()
     embedding = nn.Embedding(len(PREV.vocab), args.embed_size)
     encoder = Encoder(embedding, args.embed_size, args.num_hiddens, args.num_layers,
                       args.drop_prob)
@@ -65,7 +66,7 @@ if __name__ == '__main__':
         decoder.embedding.load_state_dict(embedding_sd)
     if args.mode == 'train':
         logger.info('Start to  train the model')
-        train(encoder, decoder, enc_optimizer, dec_optimizer, args.num_epochs, save_every=args.save_every)
+        train(encoder, decoder, train_iter, enc_optimizer, dec_optimizer, args.num_epochs, args.save_every, NEXT)
     else:
         logger.info('Preparing model to use')
-        # translate
+        # response

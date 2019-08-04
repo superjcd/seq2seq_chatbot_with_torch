@@ -29,9 +29,10 @@ out = {'prev':[], 'next':[]}
 
 with open('青云语料.csv', encoding='utf-8') as file:
     for line in file:
-        prev, next = line.split('|')[:2]
-        out['prev'].append(sentence_cleaner(prev))
-        out['next'].append((sentence_cleaner(next)))
+        if len(line)<50:  #  把长度超过50的都去掉
+            prev, next = line.split('|')[:2]
+            out['prev'].append(sentence_cleaner(prev))
+            out['next'].append((sentence_cleaner(next)))
 
 
 
